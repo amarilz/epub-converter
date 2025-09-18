@@ -1,10 +1,13 @@
 [versions]
-androidx-lifecycle = "2.9.3"
-composeHotReload = "1.0.0-beta06"
+androidx-lifecycle = "2.9.1"
+composeHotReload = "1.0.0-beta04"
 composeMultiplatform = "1.8.2"
 junit = "4.13.2"
-kotlin = "2.2.10"
+kotlin = "2.2.0"
 kotlinx-coroutines = "1.10.2"
+file-kit = "0.10.0"
+lucide-icons = "1.0.0"
+markdown-renderer = "0.35.0"
 
 [libraries]
 kotlin-test = { module = "org.jetbrains.kotlin:kotlin-test", version.ref = "kotlin" }
@@ -13,6 +16,14 @@ junit = { module = "junit:junit", version.ref = "junit" }
 androidx-lifecycle-viewmodelCompose = { module = "org.jetbrains.androidx.lifecycle:lifecycle-viewmodel-compose", version.ref = "androidx-lifecycle" }
 androidx-lifecycle-runtimeCompose = { module = "org.jetbrains.androidx.lifecycle:lifecycle-runtime-compose", version.ref = "androidx-lifecycle" }
 kotlinx-coroutinesSwing = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-swing", version.ref = "kotlinx-coroutines" }
+filekit-core = { module = "io.github.vinceglb:filekit-core", version.ref = "file-kit"}
+filekit-dialogs ={ module = "io.github.vinceglb:filekit-dialogs", version.ref = "file-kit"}
+filekit-dialogs-compose = { module = "io.github.vinceglb:filekit-dialogs-compose", version.ref = "file-kit"}
+filekit-coil = { module = "io.github.vinceglb:filekit-coil", version.ref = "file-kit"}
+lucide-icons = { module = "com.composables:icons-lucide", version.ref = "lucide-icons"}
+multiplatform-markdown-renderer = { module = "com.mikepenz:multiplatform-markdown-renderer", version.ref = "markdown-renderer"}
+multiplatform-markdown-renderer-m3 = { module = "com.mikepenz:multiplatform-markdown-renderer-m3", version.ref = "markdown-renderer"}
+multiplatform-markdown-renderer-code = { module = "com.mikepenz:multiplatform-markdown-renderer-code", version.ref = "markdown-renderer"}
 
 [plugins]
 composeHotReload = { id = "org.jetbrains.compose.hot-reload", version.ref = "composeHotReload" }
