@@ -1,6 +1,7 @@
 package com.amarildo.epubconverter.viewmodel
 
 import androidx.lifecycle.ViewModel
+import com.amarildo.epubconverter.Util.toSnakeCaseFileName
 import com.amarildo.epubconverter.service.EpubConverterService
 import com.amarildo.epubconverter.service.FileLocator
 import com.amarildo.epubconverter.service.TxtzConverter
@@ -40,14 +41,15 @@ class EpubAutomationViewModel : ViewModel() {
         try {
             require(!epubFilePath.isBlank()) { "Epub path sould be valued" }
 
-            val epub: Path = Paths.get(epubFilePath)
-            val get: Path = Paths.get(epub.parent.pathString, "output.txtz")
-            txtzConverter = TxtzConverter(epub, get)
+            val epubPath: Path = Paths.get(epubFilePath)
+            val snakeCaseFileName: String = toSnakeCaseFileName(epubPath.fileName.toString())
+            val txtzOutputPath: Path = Paths.get(epubPath.parent.pathString, "$snakeCaseFileName.txtz")
+            txtzConverter = TxtzConverter(epubPath, txtzOutputPath)
             txtzConverter?.convertEpubToTxtz()
 
             // convert to zip
             epubConverterService = EpubConverterService()
-            epubConverterService?.extractTxtzFile(get)
+            epubConverterService?.extractTxtzFile(txtzOutputPath)
 
             _uiState.value = _uiState.value.copy(
                 successMessage = "Conversion completed",

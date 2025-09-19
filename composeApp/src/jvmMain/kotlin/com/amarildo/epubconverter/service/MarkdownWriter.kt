@@ -105,11 +105,14 @@ class MarkdownWriter {
                                 "img" -> {
                                     out.append('!')
                                     val alt: String = node.attr("alt")
-                                    if (alt.isNotBlank()) {
-                                        out.append('[')
-                                            .append(removeNewlines(alt))
-                                            .append(']')
+                                    out.append('[')
+
+                                    if (alt.isBlank()) {
+                                        out.append(removeNewlines("image"))
+                                    } else {
+                                        out.append(removeNewlines(alt))
                                     }
+                                    out.append(']')
 
                                     // percorso immagine
                                     val src: String = node.attr("src")
