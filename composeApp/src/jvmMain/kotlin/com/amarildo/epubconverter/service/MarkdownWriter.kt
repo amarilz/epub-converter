@@ -32,6 +32,10 @@ class MarkdownWriter {
         var currentRow: MutableList<String>? = null
         var currentCellBuf: StringBuilder? = null
 
+        // stato e helper per <pre>
+        var preBuf: StringBuilder? = null
+        val preLang = arrayOf<String?>(null)
+
         fun appendActive(s: CharSequence) {
             if (inTable[0]) {
                 if (currentCellBuf != null) {
@@ -41,6 +45,34 @@ class MarkdownWriter {
             } else {
                 out.append(s)
             }
+        }
+
+        /**
+         * Flush del buffer <pre> come fenced code block Markdown
+         */
+        fun flushPre(out: StringBuilder, blockquoteLevel: Int) {
+            val buf = preBuf ?: return
+            val raw = buf.toString()
+                .replace("\r\n", "\n")
+                .replace("\r", "\n")
+            val prefix = "> ".repeat(blockquoteLevel)
+            val lang = preLang[0]?.trim().orEmpty()
+
+            out.append("\n")
+                .append(prefix).append("```").append(lang).append("\n")
+
+            // mantieni le indentazioni/tabs così come sono
+            val lines = raw.split('\n')
+            for (line in lines) {
+                if (line.isBlank()) continue
+                out.append(prefix).append(line).append('\n')
+            }
+
+            out.append(prefix).append("```").append("\n")
+
+            // reset stato
+            preBuf = null
+            preLang[0] = null
         }
 
         NodeTraversor.traverse(
@@ -68,7 +100,13 @@ class MarkdownWriter {
                                     }
                                 }
 
-                                "br" -> appendActive("  \n") // importante: anche i <br> in cella vanno nel buffer
+                                "br" -> {
+                                    if (inPre[0]) {
+                                        preBuf?.append("\n")
+                                    } else {
+                                        appendActive("  \n")
+                                    }
+                                }
 
                                 "blockquote" -> {
                                     blockquotes[0]++
@@ -79,8 +117,15 @@ class MarkdownWriter {
 
                                 "strong", "b" -> out.append("**")
 
+                                // [MODIFICA 2] — nel ramo Element di head(...): sostituisci la gestione di "code"
                                 "code" -> {
-                                    if (!inPre[0] && !inCode[0]) {
+                                    if (inPre[0]) {
+                                        // Se è un <code class="w"/> vuoto dentro <pre>, trattalo come newline logico
+                                        if (node.classNames().contains("w") && node.childNodeSize() == 0) {
+                                            preBuf?.append('\n')
+                                        }
+                                        // altrimenti: i TextNode figli verranno raccolti dal ramo TextNode
+                                    } else if (!inCode[0]) {
                                         out.append('`')
                                         inCode[0] = true
                                     }
@@ -88,8 +133,12 @@ class MarkdownWriter {
 
                                 "pre" -> {
                                     if (!inPre[0]) {
-                                        out.append("\n")
+                                        // non scrivere nulla qui: inizializza buffer
                                         inPre[0] = true
+                                        preBuf = StringBuilder(1024)
+                                        // prendi la lingua, se disponibile
+                                        val lang = node.attr("data-code-language")
+                                        preLang[0] = lang.ifBlank { null }
                                     }
                                 }
 
@@ -158,14 +207,20 @@ class MarkdownWriter {
                         }
 
                         is TextNode -> {
-                            val txt: String = node.wholeText
-                            if (txt.isBlank()) return
+                            val txtRaw: String = node.wholeText
+
+                            // il controllo su txtRaw lo metto dopo la verifica se si trova dentro <pre> (codice) dato che dentro i blocchi
+                            // di codice gli spazi li voglio
                             if (inPre[0]) {
-                                appendActive(preFormat(txt))
-                            } else if (inCode[0]) {
-                                appendActive(removeNewlines(txt))
+                                // Dentro <pre>: accumula il testo così com'è (senza escape, senza indent aggiuntiva)
+                                preBuf?.append(txtRaw)
+                            }
+
+                            if (txtRaw.isBlank()) return
+                            if (inCode[0]) {
+                                appendActive(removeNewlines(txtRaw))
                             } else {
-                                appendActive(escapeMd(removeNewlines(txt)))
+                                appendActive(escapeMd(removeNewlines(txtRaw)))
                             }
                         }
                     }
@@ -188,7 +243,8 @@ class MarkdownWriter {
 
                             "pre" -> {
                                 if (inPre[0]) {
-                                    out.append("\n")
+                                    // emetti il fenced code block
+                                    flushPre(out, blockquotes[0])
                                     inPre[0] = false
                                 }
                             }
@@ -330,19 +386,50 @@ class MarkdownWriter {
         .replace("|", "\\|") // necessario per le tabelle Markdown
 
     private fun tidy(s: String): String {
-        // rimuovi spazi in eccesso e linee vuote lunghe
-        val lines: List<String> = s
-            .replace("\t", "")
-            .split(Regex("\\R"))
+        val lines = s.split(Regex("\\R"))
         val b = StringBuilder()
-        for (l in lines) {
-            if (l.trim().isEmpty()) {
-                b.append("\n")
+        var inFence = false
+        var currentFencePrefix = "" // supporta anche "> " ripetuti prima di ```
+
+        for (raw in lines) {
+            val l = raw
+
+            // rileva l’inizio/fine di un fenced block con possibile prefix di blockquote
+            // Esempi di match: "```", "> ```", ">> ```"
+            val fenceRegex = Regex("""^(\s*(?:>\s)*)```""")
+            val m = fenceRegex.find(l)
+            if (m != null) {
+                val prefix = m.groupValues[1]
+                if (!inFence) {
+                    inFence = true
+                    currentFencePrefix = prefix
+                } else {
+                    // chiusura: solo se il prefix coincide (così non falsi positivi)
+                    if (prefix == currentFencePrefix) {
+                        inFence = false
+                        currentFencePrefix = ""
+                    }
+                }
+                b.append(l).append('\n')
+                continue
+            }
+
+            if (inFence) {
+                // Dentro fenced block: NON rimuovere tabs/leading spaces
+                b.append(l).append('\n')
             } else {
-                b.append(Regex("^ {1,3}").replace(l, ""))
-                    .append("\n")
+                // Fuori: come prima, ma senza cancellare i \t indiscriminatamente
+                // (rimuovere i \t poteva essere troppo aggressivo in certi casi)
+                val trimmed = l.trim()
+                if (trimmed.isEmpty()) {
+                    b.append('\n')
+                } else {
+                    // rimuovi solo spazi leading 1..3 come prima
+                    b.append(Regex("^ {1,3}").replace(l, "")).append('\n')
+                }
             }
         }
+
         val r = Regex("\n{7,}").replace(b.toString(), "\n\n\n\n\n\n")
         return r.trim() + "\n\n"
     }
