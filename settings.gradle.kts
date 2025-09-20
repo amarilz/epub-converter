@@ -24,6 +24,9 @@ dependencyResolutionManagement {
                 includeGroupAndSubgroups("com.google")
             }
         }
+        maven {
+            url = uri("https://github.com/psiegman/mvn-repo/raw/master/releases")
+        }
         mavenCentral()
     }
 }
