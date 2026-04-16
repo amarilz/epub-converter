@@ -63,6 +63,7 @@ class TxtzConverter(
 
     private fun extractSpineAsText(book: Book?): String {
         requireNotNull(book) { "book cannot be null" }
+        require(book.spine.spineReferences.isNotEmpty()) { "spine references must be non-empty" }
 
         val out = StringBuilder(64 * 1024)
         for (ref: SpineReference in book.spine.spineReferences) {
