@@ -1,4 +1,5 @@
 import org.jetbrains.compose.desktop.application.dsl.TargetFormat
+import org.gradle.api.tasks.WriteProperties
 
 plugins {
     alias(libs.plugins.kotlinMultiplatform)
@@ -7,8 +8,24 @@ plugins {
     alias(libs.plugins.composeHotReload)
 }
 
+val appVersion = providers.gradleProperty("appVersion").get()
+val appVersionResourcesDirectory = layout.buildDirectory.dir("generated/appVersionResources")
+
+val generateAppVersion by tasks.registering(WriteProperties::class) {
+    destinationFile = appVersionResourcesDirectory
+        .get()
+        .file("app-version.properties")
+        .asFile
+    property("appVersion", appVersion)
+}
+
 kotlin {
+    jvmToolchain(21)
     jvm()
+
+    sourceSets.named("jvmMain") {
+        resources.srcDir(appVersionResourcesDirectory)
+    }
 
     sourceSets {
         commonMain.dependencies {
@@ -45,6 +62,10 @@ kotlin {
     }
 }
 
+tasks.named("jvmProcessResources") {
+    dependsOn(generateAppVersion)
+}
+
 compose.desktop {
     application {
         mainClass = "com.amarildo.epubconverter.MainKt"
@@ -52,7 +73,7 @@ compose.desktop {
         nativeDistributions {
             targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb)
             packageName = "com.amarildo.epubconverter"
-            packageVersion = "1.0.0"
+            packageVersion = appVersion
         }
     }
 }
