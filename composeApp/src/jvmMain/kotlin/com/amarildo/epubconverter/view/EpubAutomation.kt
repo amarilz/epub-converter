@@ -36,8 +36,10 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.amarildo.epubconverter.AppVersion
 import com.amarildo.epubconverter.viewmodel.EpubAutomationViewModel
 import com.amarildo.epubconverter.viewmodel.UiState
 import com.composables.icons.lucide.Book
@@ -74,6 +76,17 @@ fun EpubAutomation(vm: EpubAutomationViewModel = viewModel()) {
         }
 
         Scaffold(
+            bottomBar = {
+                Text(
+                    text = "Version ${AppVersion.value}",
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(12.dp),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.labelSmall,
+                    textAlign = TextAlign.End,
+                )
+            },
             snackbarHost = {
                 SnackbarHost(hostState = snackbarHostState) { data ->
                     Snackbar(

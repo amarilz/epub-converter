@@ -32,8 +32,7 @@ open class EpubConverterService {
      * 5) zippa TUTTA la workdir e restituisce il ByteArray
      * 6) pulisce la workdir in finally
      */
-    fun extractTxtzFile(documentoFirmato: Path) {
-        val parentFolder: Path = documentoFirmato.parent
+    fun extractTxtzFile(documentoFirmato: Path, outputZipPath: Path) {
         val pathString: String = documentoFirmato.pathString
         val workdir = stagingRoot.resolve(UUID.randomUUID().toString())
 
@@ -48,7 +47,7 @@ open class EpubConverterService {
 
         try {
             // Estrai il .txtz dentro la workdir
-            extractTxtzFile(uploadedTxtz, workdir)
+            extractZipContents(uploadedTxtz, workdir)
 
             // Post-process dei file estratti (rinomi, fix riferimenti, ecc.)
             processExtractedFiles(workdir, uploadedTxtz)
@@ -58,8 +57,7 @@ open class EpubConverterService {
 
             // Crea lo zip IN MEMORIA con TUTTO il contenuto della workdir
             val outputZip: ByteArray = zipDirectoryToBytes(workdir)
-            val get: Path = Paths.get(parentFolder.pathString, "zip_finale.zip")
-            Files.write(get, outputZip)
+            Files.write(outputZipPath, outputZip)
         } finally {
             // Pulisce completamente la workdir, anche in caso di eccezione
             deleteRecursivelyQuiet(workdir)
@@ -67,7 +65,7 @@ open class EpubConverterService {
     }
 
     // Estrae il .txtz (zip) dentro destDir, con protezione zip-slip
-    private fun extractTxtzFile(txtzFile: Path, destDir: Path) {
+    private fun extractZipContents(txtzFile: Path, destDir: Path) {
         ZipInputStream(Files.newInputStream(txtzFile)).use { zipIn ->
             var entry: ZipEntry? = zipIn.nextEntry
             while (entry != null) {

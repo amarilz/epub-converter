@@ -1,0 +1,180 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-main
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    name: Prepare release
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+      should_release: ${{ steps.version.outputs.should_release }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Read and validate application version
+        id: version
+        shell: bash
+        run: |
+          VERSION="$(awk -F= '$1 == "appVersion" { print $2; exit }' gradle.properties | tr -d '[:space:]')"
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]]; then
+            echo "Invalid semantic version in gradle.properties: $VERSION" >&2
+            exit 1
+          fi
+
+          TAG="v$VERSION"
+          REMOTE_TAG="$(git ls-remote --tags origin "refs/tags/$TAG")" || {
+            echo "Failed to check whether tag $TAG exists on origin." >&2
+            exit 1
+          }
+          if [[ -n "$REMOTE_TAG" ]]; then
+            echo "Tag $TAG already exists. Skipping release."
+            echo "should_release=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "should_release=true" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: Build ${{ matrix.os }} package
+    needs: prepare
+    if: needs.prepare.outputs.should_release == 'true'
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            task: packageDmg
+            extension: dmg
+          - os: windows-latest
+            task: packageMsi
+            extension: msi
+          - os: ubuntu-latest
+            task: packageDeb
+            extension: deb
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Build native package
+        shell: bash
+        run: ./gradlew ":composeApp:${{ matrix.task }}" --no-daemon
+
+      - name: Upload native package
+        uses: actions/upload-artifact@v4
+        with:
+          name: package-${{ matrix.os }}
+          path: composeApp/build/compose/binaries/main/**/*.${{ matrix.extension }}
+          if-no-files-found: error
+          retention-days: 1
+
+  publish:
+    name: Tag and publish GitHub release
+    needs:
+      - prepare
+      - build
+    if: needs.prepare.outputs.should_release == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download native packages
+        uses: actions/download-artifact@v4
+        with:
+          pattern: package-*
+          path: release-assets
+          merge-multiple: true
+
+      - name: Create tag and release notes
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          PREVIOUS_TAG="$(git describe --tags --abbrev=0 2>/dev/null || true)"
+          if [[ -n "$PREVIOUS_TAG" ]]; then
+            RANGE="$PREVIOUS_TAG..HEAD"
+          else
+            RANGE="HEAD"
+          fi
+
+          declare -A sections=(
+            [feat]="Features"
+            [fix]="Bug Fixes"
+            [perf]="Performance"
+            [refactor]="Refactoring"
+            [docs]="Documentation"
+            [test]="Tests"
+            [build]="Build"
+            [ci]="CI"
+            [chore]="Maintenance"
+          )
+          declare -A notes
+          conventional_commit_regex='^([a-z]+)(\([^)]+\))?!?:[[:space:]]+(.+)$'
+
+          while IFS= read -r subject; do
+            if [[ "$subject" =~ $conventional_commit_regex ]]; then
+              type="${BASH_REMATCH[1]}"
+              message="${BASH_REMATCH[3]}"
+              if [[ -n "${sections[$type]:-}" ]]; then
+                notes[$type]+="- $message"$'\n'
+              fi
+            fi
+          done < <(git log "$RANGE" --no-merges --pretty=format:%s)
+
+          {
+            echo "# $TAG"
+            echo
+            for type in feat fix perf refactor docs test build ci chore; do
+              if [[ -n "${notes[$type]:-}" ]]; then
+                echo "## ${sections[$type]}"
+                echo
+                printf '%s\n' "${notes[$type]}"
+              fi
+            done
+
+            if [[ -n "$PREVIOUS_TAG" ]]; then
+              echo "**Full Changelog**: https://github.com/${GITHUB_REPOSITORY}/compare/${PREVIOUS_TAG}...${TAG}"
+            fi
+          } > release-notes.md
+
+          git tag -a "$TAG" -m "Release $TAG"
+          git push origin "$TAG"
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+        run: gh release create "$TAG" release-assets/* --title "$TAG" --notes-file release-notes.md
