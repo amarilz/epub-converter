@@ -20,6 +20,7 @@ jobs:
       version: ${{ steps.version.outputs.version }}
       tag: ${{ steps.version.outputs.tag }}
       should_release: ${{ steps.version.outputs.should_release }}
+      tag_exists: ${{ steps.version.outputs.tag_exists }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -28,6 +29,8 @@ jobs:
 
       - name: Read and validate application version
         id: version
+        env:
+          GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           VERSION="$(awk -F= '$1 == "appVersion" { print $2; exit }' gradle.properties | tr -d '[:space:]')"
@@ -42,9 +45,19 @@ jobs:
             exit 1
           }
           if [[ -n "$REMOTE_TAG" ]]; then
-            echo "Tag $TAG already exists. Skipping release."
-            echo "should_release=false" >> "$GITHUB_OUTPUT"
-            exit 0
+            echo "Tag $TAG already exists."
+            RELEASE_ASSETS="$(gh release view "$TAG" --json assets --jq '.assets[].name' 2>/dev/null || true)"
+            if grep -qE '\.dmg$' <<< "$RELEASE_ASSETS" \
+              && grep -qE '\.msi$' <<< "$RELEASE_ASSETS" \
+              && grep -qE '\.deb$' <<< "$RELEASE_ASSETS"; then
+              echo "Release $TAG already has all packages. Skipping release."
+              echo "should_release=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            echo "Release $TAG is missing one or more packages. Continuing to publish them."
+            echo "tag_exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag_exists=false" >> "$GITHUB_OUTPUT"
           fi
 
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
@@ -118,6 +131,7 @@ jobs:
         env:
           VERSION: ${{ needs.prepare.outputs.version }}
           TAG: ${{ needs.prepare.outputs.tag }}
+          TAG_EXISTS: ${{ needs.prepare.outputs.tag_exists }}
         shell: bash
         run: |
           git config user.name "github-actions[bot]"
@@ -170,11 +184,32 @@ jobs:
             fi
           } > release-notes.md
 
-          git tag -a "$TAG" -m "Release $TAG"
-          git push origin "$TAG"
+          if [[ "$TAG_EXISTS" != "true" ]]; then
+            git tag -a "$TAG" -m "Release $TAG"
+            git push origin "$TAG"
+          fi
 
-      - name: Publish GitHub release
+      - name: Create GitHub release if needed
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.prepare.outputs.tag }}
-        run: gh release create "$TAG" release-assets/* --title "$TAG" --notes-file release-notes.md
+        run: |
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --title "$TAG" --notes-file release-notes.md
+          fi
+
+      - name: Upload packages to GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+        shell: bash
+        run: |
+          mapfile -d '' assets < <(
+            find release-assets -type f \( -name '*.dmg' -o -name '*.msi' -o -name '*.deb' \) -print0
+          )
+          if [[ "${#assets[@]}" -ne 3 ]]; then
+            echo "Expected exactly 3 native packages, found ${#assets[@]}." >&2
+            find release-assets -maxdepth 4 -print >&2
+            exit 1
+          fi
+          gh release upload "$TAG" "${assets[@]}" --clobber
