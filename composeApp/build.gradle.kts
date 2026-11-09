@@ -72,8 +72,12 @@ compose.desktop {
 
         nativeDistributions {
             targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb)
-            packageName = "com.amarildo.epubconverter"
+            packageName = "EpubConverter"
             packageVersion = appVersion
+
+            macOS {
+                bundleID = "com.amarildo.epubconverter"
+            }
         }
     }
 }
