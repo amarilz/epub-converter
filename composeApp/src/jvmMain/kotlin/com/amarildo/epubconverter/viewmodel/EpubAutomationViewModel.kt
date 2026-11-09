@@ -44,12 +44,16 @@ class EpubAutomationViewModel : ViewModel() {
             val epubPath: Path = Paths.get(epubFilePath)
             val snakeCaseFileName: String = toSnakeCaseFileName(epubPath.fileName.toString())
             val txtzOutputPath: Path = Paths.get(epubPath.parent.pathString, "$snakeCaseFileName.txtz")
+            val originalFileName = epubPath.fileName.toString()
+            val zipOutputPath = epubPath.resolveSibling(
+                "${originalFileName.substringBeforeLast('.', originalFileName)}.zip",
+            )
             txtzConverter = TxtzConverter(epubPath, txtzOutputPath)
             txtzConverter?.convertEpubToTxtz()
 
             // convert to zip
             epubConverterService = EpubConverterService()
-            epubConverterService?.extractTxtzFile(txtzOutputPath)
+            epubConverterService?.extractTxtzFile(txtzOutputPath, zipOutputPath)
 
             _uiState.value = _uiState.value.copy(
                 successMessage = "Conversion completed",
